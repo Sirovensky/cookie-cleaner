@@ -50,6 +50,10 @@ node test_sim.js <walletAddress>
 3. Token-2022 program: `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`
 4. System program (transfers): `11111111111111111111111111111111`
 
+## Related
+
+The same mint-flag logic runs daily across Solana mainnet in [solana-token-flags](https://github.com/Sirovensky/solana-token-flags), and interactively in [dlmm-screen](https://github.com/Sirovensky/dlmm-screen).
+
 ## License
 
 MIT
