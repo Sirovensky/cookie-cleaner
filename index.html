@@ -169,12 +169,21 @@ async function refreshBalance() { try { $('bal').textContent = (await conn.getBa
 // ---------- Token account scan + mint risk flags ----------
 let accounts = [];
 const mintCache = new Map();
-async function mintInfo(mint) {
-  if (mintCache.has(mint)) return mintCache.get(mint);
+// Batched mint lookups: 100 mints per RPC call, results cached for the session.
+async function loadMints(mints) {
+  const todo = [...new Set(mints)].filter(m => !mintCache.has(m));
+  for (let i = 0; i < todo.length; i += 100) {
+    const chunk = todo.slice(i, i + 100);
+    try {
+      const res = await conn.getMultipleParsedAccounts(chunk.map(m => new W.PublicKey(m)));
+      chunk.forEach((m, j) => mintCache.set(m, parseMint(res.value[j])));
+    } catch (e) { chunk.forEach(m => mintCache.set(m, { flags: [{ t: 'lookup failed', c: 'warn' }], program: '?' })); }
+  }
+}
+function parseMint(v) {
   let out = { flags: [], program: '?' };
   try {
-    const acc = await conn.getParsedAccountInfo(new W.PublicKey(mint));
-    const v = acc.value; if (!v || !v.data.parsed) return out;
+    if (!v || !v.data || !v.data.parsed) { out.flags.push({ t: 'unknown mint', c: 'warn' }); return out; }
     const info = v.data.parsed.info; out.program = v.owner.equals(TOKEN22) ? 'Token-2022' : 'SPL Token';
     const ext = {}; for (const e of info.extensions || []) ext[e.extension] = e.state || {};
     const fee = ext.transferFeeConfig && ext.transferFeeConfig.newerTransferFee && ext.transferFeeConfig.newerTransferFee.transferFeeBasisPoints;
@@ -185,9 +194,10 @@ async function mintInfo(mint) {
     if (info.mintAuthority) out.flags.push({ t: 'mintable', c: 'warn' });
     if (info.freezeAuthority) out.flags.push({ t: 'freezable', c: 'warn' });
     if (!out.flags.length) out.flags.push({ t: 'clean', c: 'ok' });
-  } catch (e) { out.flags.push({ t: 'lookup failed', c: 'warn' }); }
-  mintCache.set(mint, out); return out;
+  } catch (e) { out.flags.push({ t: 'parse failed', c: 'warn' }); }
+  return out;
 }
+const MAX_ROWS = 500;
 async function scan() {
   $('btnScan').disabled = true; $('scanInfo').textContent = 'scanning…'; accounts = [];
   try {
@@ -198,14 +208,20 @@ async function scan() {
     }
     const tb = $('tbl').tBodies[0]; tb.innerHTML = '';
     let rent = 0, empties = 0;
-    for (const ac of accounts) {
-      const mi = await mintInfo(ac.mint);
-      const empty = ac.raw === '0' && !ac.frozen; if (empty) { rent += ac.lamports; empties++; }
+    for (const ac of accounts) { if (ac.raw === '0' && !ac.frozen) { rent += ac.lamports; empties++; } }
+    $('rent').textContent = (rent / 1e9).toFixed(4) + ' COOK'; $('btnClose').disabled = empties === 0;
+    $('scanInfo').textContent = `${accounts.length} token accounts, ${empties} empty — reading mint flags…`;
+    // non-empty accounts first, then empties; cap rows for very large wallets
+    const ordered = [...accounts.filter(a => a.raw !== '0'), ...accounts.filter(a => a.raw === '0')].slice(0, MAX_ROWS);
+    await loadMints(ordered.map(a => a.mint));
+    for (const ac of ordered) {
+      const mi = mintCache.get(ac.mint) || { flags: [], program: '?' };
+      const empty = ac.raw === '0' && !ac.frozen;
       const tr = document.createElement('tr');
       tr.innerHTML = `<td class="mono"><a target="_blank" rel="noopener" href="${EXPLORER}/token/${ac.mint}">${short(ac.mint)}</a></td><td>${ac.amount}${empty ? ' <span class="tag">empty</span>' : ''}${ac.frozen ? ' <span class="tag bad">frozen</span>' : ''}</td><td>${mi.program}</td><td>${mi.flags.map(f => `<span class="tag ${f.c}">${f.t}</span>`).join('')}</td><td class="mono"><a target="_blank" rel="noopener" href="${EXPLORER}/address/${ac.pubkey.toBase58()}">${short(ac.pubkey.toBase58())}</a></td>`;
       tb.appendChild(tr);
     }
-    $('rent').textContent = (rent / 1e9).toFixed(4) + ' COOK'; $('btnClose').disabled = empties === 0;
+    if (accounts.length > MAX_ROWS) { const tr = document.createElement('tr'); tr.innerHTML = `<td colspan="5" class="muted">Showing ${MAX_ROWS} of ${accounts.length} accounts. Closing still covers all empty accounts.</td>`; tb.appendChild(tr); }
     $('scanInfo').textContent = `${accounts.length} token accounts, ${empties} empty`;
     if (!accounts.length) $('tbl').tBodies[0].innerHTML = '<tr><td colspan="5" class="muted">No token accounts on this wallet.</td></tr>';
   } catch (e) { toast('Scan failed: ' + e.message, 'bad'); $('scanInfo').textContent = ''; }

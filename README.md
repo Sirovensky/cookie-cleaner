@@ -4,6 +4,8 @@ Wallet hygiene for [Cookie Chain](https://www.cookiechain.wtf/). Connect Nightly
 
 **Live app:** https://sirovensky.github.io/cookie-cleaner/
 
+![Cookie Cleaner scanning a wallet with 4,467 token accounts](screenshot.png)
+
 ## Why
 
 As of 2026-09-08, Cookie Chain holds 17,895 SPL token accounts and 9,019 of them are empty. Each one locks 0.00204 COOK of rent-exempt balance, about 18.4 COOK sitting idle chain-wide. Wallets that swap, mint, or receive airdrops accumulate these and rarely clean up. There is no built-in way in most wallets to see or close them.
