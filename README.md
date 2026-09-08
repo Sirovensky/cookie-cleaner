@@ -19,6 +19,7 @@ The second problem is Token-2022 extensions. A mint can carry a transfer tax, a 
 3. **Close empty accounts** in batches of 10 per transaction, with an opt-in **dust burn** (balances under 0.000001 of a token are burned first, after an explicit confirmation) so near-empty accounts can be reclaimed too. Skips frozen accounts and accounts whose close authority is not the wallet. Each transaction is simulated first, then signed by the wallet, sent, and confirmed against the block height; every step shows a toast with an explorer link.
 4. **Send COOK** with balance and address validation and the same simulate → sign → send → confirm path.
 5. **Chain stats** (slot, epoch progress, TPS, and a live chain-wide count of empty token accounts with the rent they hold) and the wallet's recent signatures with success or failure status.
+6. **Chain census**, no wallet needed: groups every token account on Cookie Chain by mint, lists the 20 most-held tokens with names and risk flags, and reports how many of the 300 most-held mints carry a transfer tax or a permanent delegate/pause switch. Plus a lookup box for any mint address.
 
 No backend. The page talks only to `https://rpc.cookiescan.io` from the browser. No keys leave the wallet.
 
