@@ -127,7 +127,7 @@ async function disconnect() {
 function onConnected() {
   $('addr').innerHTML = `<a target="_blank" rel="noopener" href="${EXPLORER}/address/${pubkey.toBase58()}">${short(pubkey.toBase58())}</a>`;
   $('btnConnect').hidden = true; $('btnDisconnect').hidden = false; $('btnScan').disabled = false; $('btnSend').disabled = false;
-  toast('Connected ' + (wallet.name || 'wallet') + ' as ' + short(pubkey.toBase58()), 'ok'); refreshBalance(); scan(); history();
+  toast('Connected ' + (wallet.name || 'wallet') + ' as ' + short(pubkey.toBase58()) + '. Balances and transactions use Cookie Chain (rpc.cookiescan.io) regardless of the network selected in the wallet.', 'ok', 12000); refreshBalance(); scan(); history();
 }
 
 // Sign + send through whichever feature the wallet exposes, then poll for confirmation.
@@ -141,14 +141,15 @@ async function signAndSend(tx, label) {
   try {
     if (wallet.legacy) {
       const signed = await wallet.legacy.signTransaction(tx); sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
-    } else if (wallet.features['solana:signAndSendTransaction']) {
-      const chain = account.chains && account.chains[0];
-      const [r] = await wallet.features['solana:signAndSendTransaction'].signAndSendTransaction({ transaction: tx.serialize({ requireAllSignatures: false }), account, chain });
-      sig = W.bs58 ? W.bs58.encode(r.signature) : base58(r.signature);
-    } else {
+    } else if (wallet.features['solana:signTransaction']) {
+      // Preferred: wallet signs, we broadcast to Cookie Chain ourselves, so the wallet's selected network cannot misroute it.
       const chain = account.chains && account.chains[0];
       const [r] = await wallet.features['solana:signTransaction'].signTransaction({ transaction: tx.serialize({ requireAllSignatures: false }), account, chain });
       sig = await conn.sendRawTransaction(r.signedTransaction, { skipPreflight: true });
+    } else {
+      const chain = account.chains && account.chains[0];
+      const [r] = await wallet.features['solana:signAndSendTransaction'].signAndSendTransaction({ transaction: tx.serialize({ requireAllSignatures: false }), account, chain });
+      sig = base58(r.signature);
     }
   } finally { pending.remove(); }
   const t = toast(label + ': sent ' + txLink(sig) + ' — confirming…', '', 90000);

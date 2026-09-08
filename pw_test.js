@@ -10,7 +10,7 @@ const srv=http.createServer((q,r)=>{r.end(fs.readFileSync(path.join(__dirname,'i
    window.nightly={solana:{name:'Nightly',features:{
      'standard:connect':{connect:async()=>({accounts:[acct]})},
      'standard:disconnect':{disconnect:async()=>{}},
-     'solana:signAndSendTransaction':{signAndSendTransaction:async()=>{throw new Error('user rejected (fake wallet)');}}}}};
+     'solana:signTransaction':{signTransaction:async()=>{throw new Error('user rejected (fake wallet)');}},'solana:signAndSendTransaction':{signAndSendTransaction:async()=>{throw new Error('should not be used');}}}}};
  },OWNER);
  await p.goto('http://localhost:8089/');await p.waitForTimeout(3000);
  const stats=await p.evaluate(()=>['slot','epoch','tps'].map(i=>document.getElementById(i).textContent));console.log('stats',stats);await p.waitForFunction(()=>!/…/.test(document.getElementById('chainEmpty').textContent),null,{timeout:120000});console.log('chain',await p.textContent('#chainEmpty'),await p.textContent('#chainRent'));
