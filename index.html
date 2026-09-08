@@ -44,7 +44,8 @@ h2{font-size:16px;margin:22px 0 8px}p.muted{color:var(--muted);margin:4px 0 10px
     <div class="card"><div class="k">Epoch</div><div class="v" id="epoch">…</div></div>
     <div class="card"><div class="k">TPS (60s)</div><div class="v" id="tps">…</div></div>
     <div class="card"><div class="k">Your COOK</div><div class="v" id="bal">—</div></div>
-    <div class="card"><div class="k">Rent locked in empty accounts</div><div class="v" id="rent">—</div></div>
+    <div class="card"><div class="k">Rent locked in your empty accounts</div><div class="v" id="rent">—</div></div>
+    <div class="card"><div class="k">Chain-wide empty token accounts</div><div class="v" id="chainEmpty">…</div><div class="k" id="chainRent"></div></div>
   </div>
 
   <h2>Token accounts</h2>
@@ -52,9 +53,10 @@ h2{font-size:16px;margin:22px 0 8px}p.muted{color:var(--muted);margin:4px 0 10px
   <div class="row">
     <button id="btnScan" disabled>Scan wallet</button>
     <button id="btnClose" disabled>Close empty accounts</button>
+    <label class="muted" style="font-size:13px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="burnDust" style="min-width:0"> also burn dust (balances worth under <span id="dustTxt">0.000001</span> of a token) before closing</label>
     <span id="scanInfo" class="muted"></span>
   </div>
-  <div class="wrap"><table id="tbl"><thead><tr><th>Mint</th><th>Balance</th><th>Program</th><th>Flags</th><th>Account</th></tr></thead><tbody></tbody></table></div>
+  <div class="wrap"><table id="tbl"><thead><tr><th>Token</th><th>Balance</th><th>Program</th><th>Flags</th><th>Account</th></tr></thead><tbody></tbody></table></div>
 
   <h2>Send COOK</h2>
   <p class="muted">Plain transfer with confirmation tracking, so the whole sign → send → confirm path is visible.</p>
@@ -78,6 +80,8 @@ const RPC = 'https://rpc.cookiescan.io';
 const EXPLORER = 'https://cookiescan.io';
 const TOKEN = new W.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const TOKEN22 = new W.PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+const METAPLEX = new W.PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+const DUST = 1e-6; // token units; balances below this count as dust for the burn option
 const conn = new W.Connection(RPC, 'confirmed');
 const $ = id => document.getElementById(id);
 
@@ -164,6 +168,14 @@ async function stats() {
     if (perf[0]) $('tps').textContent = (perf[0].numTransactions / perf[0].samplePeriodSecs).toFixed(1);
   } catch (e) { $('slot').textContent = 'rpc error'; }
 }
+// Chain-wide count of empty token accounts (amount == 0 at offset 64), pubkeys only.
+async function chainStats() {
+  try {
+    const [a, b] = await Promise.all([TOKEN, TOKEN22].map(pid => conn.getProgramAccounts(pid, { dataSlice: { offset: 0, length: 0 }, filters: [{ dataSize: 165 }, { memcmp: { offset: 64, bytes: '11111111' } }] })));
+    const n = a.length + b.length; $('chainEmpty').textContent = n.toLocaleString();
+    $('chainRent').textContent = '≈ ' + (n * 2039280 / 1e9).toFixed(1) + ' COOK of rent reclaimable';
+  } catch (e) { $('chainEmpty').textContent = 'n/a'; }
+}
 async function refreshBalance() { try { $('bal').textContent = (await conn.getBalance(pubkey) / 1e9).toFixed(4); } catch (e) { toast('Balance read failed: ' + e.message, 'bad'); } }
 
 // ---------- Token account scan + mint risk flags ----------
@@ -184,8 +196,9 @@ function parseMint(v) {
   let out = { flags: [], program: '?' };
   try {
     if (!v || !v.data || !v.data.parsed) { out.flags.push({ t: 'unknown mint', c: 'warn' }); return out; }
-    const info = v.data.parsed.info; out.program = v.owner.equals(TOKEN22) ? 'Token-2022' : 'SPL Token';
+    const info = v.data.parsed.info; out.program = v.owner.equals(TOKEN22) ? 'Token-2022' : 'SPL Token'; out.decimals = info.decimals;
     const ext = {}; for (const e of info.extensions || []) ext[e.extension] = e.state || {};
+    if (ext.tokenMetadata && ext.tokenMetadata.symbol) out.name = ext.tokenMetadata.symbol;
     const fee = ext.transferFeeConfig && ext.transferFeeConfig.newerTransferFee && ext.transferFeeConfig.newerTransferFee.transferFeeBasisPoints;
     if (fee) out.flags.push({ t: 'transfer tax ' + (fee / 100) + '%', c: 'bad' });
     if (ext.permanentDelegate) out.flags.push({ t: 'permanent delegate', c: 'bad' });
@@ -198,6 +211,19 @@ function parseMint(v) {
   return out;
 }
 const MAX_ROWS = 500;
+// Metaplex token metadata (name/symbol) for mints without Token-2022 metadata, 100 PDAs per call.
+async function loadNames(mints) {
+  const todo = mints.filter(m => mintCache.has(m) && !mintCache.get(m).name && !mintCache.get(m).nameTried);
+  for (let i = 0; i < todo.length; i += 100) {
+    const chunk = todo.slice(i, i + 100);
+    const pdas = chunk.map(m => W.PublicKey.findProgramAddressSync([new TextEncoder().encode('metadata'), METAPLEX.toBytes(), new W.PublicKey(m).toBytes()], METAPLEX)[0]);
+    try {
+      const res = await conn.getMultipleAccountsInfo(pdas);
+      chunk.forEach((m, j) => { const mi = mintCache.get(m); mi.nameTried = true; const acc = res[j]; if (!acc) return;
+        try { const d = acc.data; let o = 1 + 32 + 32; const nl = d.readUInt32LE(o); o += 4; const name = d.slice(o, o + nl).toString('utf8').replace(/\0+$/, ''); o += nl; const sl = d.readUInt32LE(o); o += 4; const sym = d.slice(o, o + sl).toString('utf8').replace(/\0+$/, ''); mi.name = sym || name; mi.fullName = name; } catch (e) {} });
+    } catch (e) { chunk.forEach(m => { mintCache.get(m).nameTried = true; }); }
+  }
+}
 async function scan() {
   $('btnScan').disabled = true; $('scanInfo').textContent = 'scanning…'; accounts = [];
   try {
@@ -213,12 +239,13 @@ async function scan() {
     $('scanInfo').textContent = `${accounts.length} token accounts, ${empties} empty — reading mint flags…`;
     // non-empty accounts first, then empties; cap rows for very large wallets
     const ordered = [...accounts.filter(a => a.raw !== '0'), ...accounts.filter(a => a.raw === '0')].slice(0, MAX_ROWS);
-    await loadMints(ordered.map(a => a.mint));
+    await loadMints(ordered.map(a => a.mint)); await loadNames(ordered.map(a => a.mint));
     for (const ac of ordered) {
       const mi = mintCache.get(ac.mint) || { flags: [], program: '?' };
-      const empty = ac.raw === '0' && !ac.frozen;
+      const empty = ac.raw === '0' && !ac.frozen; const dust = !empty && !ac.frozen && parseFloat(ac.amount) < DUST;
+      const label = mi.name ? `<b>${mi.name.replace(/[<>&]/g, '')}</b> <span class="mono muted">${short(ac.mint)}</span>` : `<span class="mono">${short(ac.mint)}</span>`;
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td class="mono"><a target="_blank" rel="noopener" href="${EXPLORER}/token/${ac.mint}">${short(ac.mint)}</a></td><td>${ac.amount}${empty ? ' <span class="tag">empty</span>' : ''}${ac.frozen ? ' <span class="tag bad">frozen</span>' : ''}</td><td>${mi.program}</td><td>${mi.flags.map(f => `<span class="tag ${f.c}">${f.t}</span>`).join('')}</td><td class="mono"><a target="_blank" rel="noopener" href="${EXPLORER}/address/${ac.pubkey.toBase58()}">${short(ac.pubkey.toBase58())}</a></td>`;
+      tr.innerHTML = `<td><a target="_blank" rel="noopener" href="${EXPLORER}/token/${ac.mint}" style="text-decoration:none">${label}</a></td><td>${ac.amount}${empty ? ' <span class="tag">empty</span>' : ''}${dust ? ' <span class="tag warn">dust</span>' : ''}${ac.frozen ? ' <span class="tag bad">frozen</span>' : ''}</td><td>${mi.program}</td><td>${mi.flags.map(f => `<span class="tag ${f.c}">${f.t}</span>`).join('')}</td><td class="mono"><a target="_blank" rel="noopener" href="${EXPLORER}/address/${ac.pubkey.toBase58()}">${short(ac.pubkey.toBase58())}</a></td>`;
       tb.appendChild(tr);
     }
     if (accounts.length > MAX_ROWS) { const tr = document.createElement('tr'); tr.innerHTML = `<td colspan="5" class="muted">Showing ${MAX_ROWS} of ${accounts.length} accounts. Closing still covers all empty accounts.</td>`; tb.appendChild(tr); }
@@ -232,14 +259,24 @@ function closeIx(ac) {
   return new W.TransactionInstruction({ programId: ac.program, data: Uint8Array.from([9]),
     keys: [{ pubkey: ac.pubkey, isSigner: false, isWritable: true }, { pubkey: pubkey, isSigner: false, isWritable: true }, { pubkey: pubkey, isSigner: true, isWritable: false }] });
 }
+// Burn = instruction index 8, data [8, u64 amount LE].
+function burnIx(ac) {
+  const data = new Uint8Array(9); data[0] = 8; let v = BigInt(ac.raw); for (let i = 0; i < 8; i++) { data[1 + i] = Number(v & 255n); v >>= 8n; }
+  return new W.TransactionInstruction({ programId: ac.program, data,
+    keys: [{ pubkey: ac.pubkey, isSigner: false, isWritable: true }, { pubkey: new W.PublicKey(ac.mint), isSigner: false, isWritable: true }, { pubkey: pubkey, isSigner: true, isWritable: false }] });
+}
 async function closeEmpties() {
-  const targets = accounts.filter(a => a.raw === '0' && !a.frozen && (!a.closeAuth || a.closeAuth === pubkey.toBase58()));
+  const own = a => !a.frozen && (!a.closeAuth || a.closeAuth === pubkey.toBase58());
+  const empties = accounts.filter(a => a.raw === '0' && own(a));
+  const dusts = $('burnDust').checked ? accounts.filter(a => a.raw !== '0' && own(a) && parseFloat(a.amount) < DUST) : [];
+  const targets = [...empties, ...dusts];
   if (!targets.length) return toast('Nothing to close.', '');
+  if (dusts.length && !confirm(`Burn dust in ${dusts.length} account(s) and close them? The tokens are destroyed; only the rent comes back.`)) return;
   $('btnClose').disabled = true;
   try {
-    for (let i = 0; i < targets.length; i += 12) {   // keep each tx small enough for any wallet
-      const batch = targets.slice(i, i + 12); const tx = new W.Transaction();
-      for (const ac of batch) tx.add(closeIx(ac));
+    for (let i = 0; i < targets.length; i += 10) {   // keep each tx small enough for any wallet
+      const batch = targets.slice(i, i + 10); const tx = new W.Transaction();
+      for (const ac of batch) { if (ac.raw !== '0') tx.add(burnIx(ac)); tx.add(closeIx(ac)); }
       await signAndSend(tx, `Close ${batch.length} account${batch.length > 1 ? 's' : ''}`);
     }
     toast('Reclaimed rent from ' + targets.length + ' account(s).', 'ok');
@@ -266,7 +303,7 @@ async function history() {
 
 $('btnConnect').onclick = () => connect().catch(e => toast('Connect failed: ' + e.message, 'bad'));
 $('btnDisconnect').onclick = disconnect; $('btnScan').onclick = scan; $('btnClose').onclick = closeEmpties; $('btnSend').onclick = send;
-stats(); setInterval(stats, 15000);
+stats(); setInterval(stats, 15000); chainStats();
 </script>
 </body>
 </html>

@@ -15,10 +15,10 @@ The second problem is Token-2022 extensions. A mint can carry a transfer tax, a 
 ## What it does
 
 1. **Connect** a Nightly wallet through the Wallet Standard (`window.nightly.solana`), with fallback to any registered Solana wallet or a legacy `window.solana` provider.
-2. **Scan** all SPL Token and Token-2022 accounts of the connected wallet and display balance, program, and mint flags: `transfer tax`, `permanent delegate`, `pausable`, `transfer hook`, `mintable`, `freezable`, or `clean`.
-3. **Close empty accounts** in batches of 12 per transaction. Skips frozen accounts and accounts whose close authority is not the wallet. Each transaction is simulated first, then signed by the wallet, sent, and confirmed against the block height; every step shows a toast with an explorer link.
+2. **Scan** all SPL Token and Token-2022 accounts of the connected wallet and display token name (Token-2022 metadata or Metaplex), balance, program, and mint flags: `transfer tax`, `permanent delegate`, `pausable`, `transfer hook`, `mintable`, `freezable`, or `clean`.
+3. **Close empty accounts** in batches of 10 per transaction, with an opt-in **dust burn** (balances under 0.000001 of a token are burned first, after an explicit confirmation) so near-empty accounts can be reclaimed too. Skips frozen accounts and accounts whose close authority is not the wallet. Each transaction is simulated first, then signed by the wallet, sent, and confirmed against the block height; every step shows a toast with an explorer link.
 4. **Send COOK** with balance and address validation and the same simulate → sign → send → confirm path.
-5. **Chain stats** (slot, epoch progress, TPS) and the wallet's recent signatures with success or failure status.
+5. **Chain stats** (slot, epoch progress, TPS, and a live chain-wide count of empty token accounts with the rent they hold) and the wallet's recent signatures with success or failure status.
 
 No backend. The page talks only to `https://rpc.cookiescan.io` from the browser. No keys leave the wallet.
 

@@ -13,7 +13,7 @@ const srv=http.createServer((q,r)=>{r.end(fs.readFileSync(path.join(__dirname,'i
      'solana:signAndSendTransaction':{signAndSendTransaction:async()=>{throw new Error('user rejected (fake wallet)');}}}}};
  },OWNER);
  await p.goto('http://localhost:8089/');await p.waitForTimeout(3000);
- const stats=await p.evaluate(()=>['slot','epoch','tps'].map(i=>document.getElementById(i).textContent));console.log('stats',stats);
+ const stats=await p.evaluate(()=>['slot','epoch','tps'].map(i=>document.getElementById(i).textContent));console.log('stats',stats);await p.waitForFunction(()=>!/…/.test(document.getElementById('chainEmpty').textContent),null,{timeout:120000});console.log('chain',await p.textContent('#chainEmpty'),await p.textContent('#chainRent'));
  await p.click('#btnConnect');await p.waitForTimeout(1500);console.log('addr',await p.textContent('#addr'));
  await p.waitForFunction(()=>/token accounts, \d+ empty$/.test(document.getElementById('scanInfo').textContent),null,{timeout:180000});
  console.log('scanInfo',await p.textContent('#scanInfo'),'| bal',await p.textContent('#bal'),'| rent',await p.textContent('#rent'));
