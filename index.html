@@ -66,6 +66,17 @@ h2{font-size:16px;margin:22px 0 8px}p.muted{color:var(--muted);margin:4px 0 10px
     <button id="btnSend" disabled>Send</button>
   </div>
 
+  <h2>Chain census</h2>
+  <p class="muted">Every token account on Cookie Chain grouped by mint: which tokens have the most holders, and how many of them carry transfer taxes or issuer controls. Runs in your browser from the RPC, no wallet needed.</p>
+  <div class="row">
+    <button id="btnCensus" class="sec">Run census</button>
+    <input id="lookup" placeholder="or paste any mint address to check its flags" class="mono" style="flex:1;min-width:280px">
+    <button id="btnLookup" class="sec">Check mint</button>
+    <span id="censusInfo" class="muted"></span>
+  </div>
+  <div id="lookupOut" class="muted" style="margin:6px 0 10px"></div>
+  <div class="wrap"><table id="census"><thead><tr><th>#</th><th>Token</th><th>Holders</th><th>Program</th><th>Flags</th></tr></thead><tbody></tbody></table></div>
+
   <h2>Recent activity</h2>
   <div class="wrap"><table id="hist"><thead><tr><th>Signature</th><th>Slot</th><th>Time</th><th>Status</th></tr></thead><tbody></tbody></table></div>
 
@@ -196,7 +207,7 @@ async function loadMints(mints) {
 function parseMint(v) {
   let out = { flags: [], program: '?' };
   try {
-    if (!v || !v.data || !v.data.parsed) { out.flags.push({ t: 'unknown mint', c: 'warn' }); return out; }
+    if (!v || !v.data || !v.data.parsed) { out.flags.push({ t: 'not found on Cookie Chain', c: 'warn' }); return out; }
     const info = v.data.parsed.info; out.program = v.owner.equals(TOKEN22) ? 'Token-2022' : 'SPL Token'; out.decimals = info.decimals;
     const ext = {}; for (const e of info.extensions || []) ext[e.extension] = e.state || {};
     if (ext.tokenMetadata && ext.tokenMetadata.symbol) out.name = ext.tokenMetadata.symbol;
@@ -294,6 +305,34 @@ async function send() {
   catch (e) { toast('Send failed: ' + e.message, 'bad', 15000); }
   $('btnSend').disabled = false; await refreshBalance(); await history();
 }
+// ---------- Chain census + mint lookup (no wallet needed) ----------
+async function census() {
+  $('btnCensus').disabled = true; $('censusInfo').textContent = 'reading all token accounts…';
+  try {
+    const counts = new Map(); let total = 0;
+    for (const pid of [TOKEN, TOKEN22]) {
+      const accs = await conn.getProgramAccounts(pid, { dataSlice: { offset: 0, length: 32 }, filters: [{ dataSize: 165 }] });
+      for (const a of accs) { total++; const m = new W.PublicKey(a.account.data.slice(0, 32)).toBase58(); counts.set(m, (counts.get(m) || 0) + 1); }
+    }
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+    await loadMints(top.map(t => t[0])); await loadNames(top.map(t => t[0]));
+    // tax share across all mints held: sample up to 300 most-held mints
+    const sample = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 300).map(t => t[0]); await loadMints(sample);
+    const taxed = sample.filter(m => (mintCache.get(m) || {}).flags?.some(f => /tax/.test(f.t))).length;
+    const ctrl = sample.filter(m => (mintCache.get(m) || {}).flags?.some(f => /delegate|pausable/.test(f.t))).length;
+    const tb = $('census').tBodies[0]; tb.innerHTML = '';
+    top.forEach(([m, n], i) => { const mi = mintCache.get(m) || { flags: [], program: '?' }; const tr = document.createElement('tr');
+      const label = mi.name ? `<b>${mi.name.replace(/[<>&]/g, '')}</b> <span class="mono muted">${short(m)}</span>` : `<span class="mono">${short(m)}</span>`;
+      tr.innerHTML = `<td>${i + 1}</td><td><a target="_blank" rel="noopener" href="${EXPLORER}/token/${m}" style="text-decoration:none">${label}</a></td><td>${n.toLocaleString()}</td><td>${mi.program}</td><td>${mi.flags.map(f => `<span class="tag ${f.c}">${f.t}</span>`).join('')}</td>`; tb.appendChild(tr); });
+    $('censusInfo').textContent = `${total.toLocaleString()} token accounts across ${counts.size.toLocaleString()} mints. Of the 300 most-held mints, ${taxed} carry a transfer tax and ${ctrl} have a permanent delegate or pause switch.`;
+  } catch (e) { toast('Census failed: ' + e.message, 'bad'); $('censusInfo').textContent = ''; }
+  $('btnCensus').disabled = false;
+}
+async function lookup() {
+  let m; try { m = new W.PublicKey($('lookup').value.trim()).toBase58(); } catch (e) { return toast('Not a valid address.', 'bad'); }
+  $('lookupOut').textContent = 'reading…'; mintCache.delete(m); await loadMints([m]); await loadNames([m]);
+  const mi = mintCache.get(m); $('lookupOut').innerHTML = `${mi.name ? '<b>' + mi.name.replace(/[<>&]/g, '') + '</b> ' : ''}<span class="mono">${m}</span> · ${mi.program} · ${mi.flags.map(f => `<span class="tag ${f.c}">${f.t}</span>`).join('')}`;
+}
 async function history() {
   try {
     const sigs = await conn.getSignaturesForAddress(pubkey, { limit: 10 });
@@ -304,6 +343,7 @@ async function history() {
 
 $('btnConnect').onclick = () => connect().catch(e => toast('Connect failed: ' + e.message, 'bad'));
 $('btnDisconnect').onclick = disconnect; $('btnScan').onclick = scan; $('btnClose').onclick = closeEmpties; $('btnSend').onclick = send;
+$('btnCensus').onclick = census; $('btnLookup').onclick = lookup;
 stats(); setInterval(stats, 15000); chainStats();
 </script>
 </body>

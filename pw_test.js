@@ -24,5 +24,8 @@ const srv=http.createServer((q,r)=>{r.end(fs.readFileSync(path.join(__dirname,'i
  if(!closeDisabled){await p.click('#btnClose');await p.waitForTimeout(8000);const toasts=await p.$$eval('#toasts .toast',t=>t.map(x=>x.innerText));console.log('toasts',toasts);}
  await p.fill('#to','bad-address');await p.fill('#amt','0.001');await p.click('#btnSend');await p.waitForTimeout(800);
  console.log('send-validation toast',await p.$$eval('#toasts .toast',t=>t.map(x=>x.innerText).slice(-1)));
+ await p.click('#btnCensus');await p.waitForFunction(()=>/token accounts across/.test(document.getElementById('censusInfo').textContent),null,{timeout:240000});console.log('census',await p.textContent('#censusInfo'));console.log('top',await p.$$eval('#census tbody tr',rs=>rs.slice(0,3).map(r=>r.innerText.replace(/\s+/g,' '))));
+ await p.fill('#lookup','HcRLc9VDgjLeK154xDawfb1dmVJ98DoSqcwTHGqiDeJR');await p.click('#btnLookup');await p.waitForTimeout(4000);console.log('lookup',await p.textContent('#lookupOut'));
+ await p.screenshot({path:'screenshot.png',fullPage:false});
  console.log('errors',errors);await b.close();srv.close();
 })().catch(e=>{console.error('TEST FAIL',e);process.exit(1)});
