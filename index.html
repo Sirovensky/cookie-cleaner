@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cookie Cleaner</title>
+<meta name="description" content="Wallet hygiene for Cookie Chain: reclaim rent from empty token accounts and flag risky Token-2022 mints. Connect with Nightly.">
+<style>
+:root{--bg:#0f0e0c;--card:#1a1815;--line:#2b2823;--ink:#f3ede2;--muted:#a39a8a;--acc:#e8a33c;--ok:#5ad38a;--bad:#ff6b6b;--warn:#ffd166}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+h1{font-size:20px;margin:0;letter-spacing:.3px}h1 span{color:var(--acc)}
+main{max-width:1040px;margin:0 auto;padding:20px 16px 60px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.6px}.v{font-size:22px;font-weight:600;margin-top:2px;word-break:break-all}
+button{background:var(--acc);color:#1a1000;border:0;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer;font-size:14px}
+button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}button:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.tag{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11.5px;margin:1px 3px 1px 0;border:1px solid var(--line)}
+.tag.bad{color:var(--bad);border-color:var(--bad)}.tag.warn{color:var(--warn);border-color:var(--warn)}.tag.ok{color:var(--ok);border-color:var(--ok)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+input{background:#0b0a09;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:14px;min-width:120px}
+#toasts{position:fixed;right:14px;bottom:14px;display:flex;flex-direction:column;gap:8px;max-width:420px;z-index:9}
+.toast{background:#23201b;border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:10px;padding:10px 12px;font-size:13.5px;box-shadow:0 8px 24px #0008}
+.toast.ok{border-left-color:var(--ok)}.toast.bad{border-left-color:var(--bad)}.toast a{color:var(--acc)}
+h2{font-size:16px;margin:22px 0 8px}p.muted{color:var(--muted);margin:4px 0 10px;font-size:13.5px}
+.wrap{overflow-x:auto}a{color:var(--acc)}footer{color:var(--muted);font-size:12.5px;margin-top:40px;border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🍪 Cookie <span>Cleaner</span> <small style="color:var(--muted);font-weight:400;font-size:13px">wallet hygiene for Cookie Chain</small></h1>
+  <div class="row" style="margin:0">
+    <span id="addr" class="mono" style="color:var(--muted)">not connected</span>
+    <button id="btnConnect">Connect Nightly</button>
+    <button id="btnDisconnect" class="sec" hidden>Disconnect</button>
+  </div>
+</header>
+<main>
+  <div class="grid">
+    <div class="card"><div class="k">Slot</div><div class="v" id="slot">…</div></div>
+    <div class="card"><div class="k">Epoch</div><div class="v" id="epoch">…</div></div>
+    <div class="card"><div class="k">TPS (60s)</div><div class="v" id="tps">…</div></div>
+    <div class="card"><div class="k">Your COOK</div><div class="v" id="bal">—</div></div>
+    <div class="card"><div class="k">Rent locked in empty accounts</div><div class="v" id="rent">—</div></div>
+  </div>
+
+  <h2>Token accounts</h2>
+  <p class="muted">Every token account you own, with the mint's on-chain risk flags read live from Cookie Chain (Token-2022 transfer fees, permanent delegate, pausable, live mint/freeze authority). Empty accounts can be closed to reclaim their rent.</p>
+  <div class="row">
+    <button id="btnScan" disabled>Scan wallet</button>
+    <button id="btnClose" disabled>Close empty accounts</button>
+    <span id="scanInfo" class="muted"></span>
+  </div>
+  <div class="wrap"><table id="tbl"><thead><tr><th>Mint</th><th>Balance</th><th>Program</th><th>Flags</th><th>Account</th></tr></thead><tbody></tbody></table></div>
+
+  <h2>Send COOK</h2>
+  <p class="muted">Plain transfer with confirmation tracking, so the whole sign → send → confirm path is visible.</p>
+  <div class="row">
+    <input id="to" placeholder="recipient address" style="flex:1;min-width:280px" class="mono">
+    <input id="amt" placeholder="amount COOK" type="number" step="0.000000001" min="0" style="width:150px">
+    <button id="btnSend" disabled>Send</button>
+  </div>
+
+  <h2>Recent activity</h2>
+  <div class="wrap"><table id="hist"><thead><tr><th>Signature</th><th>Slot</th><th>Time</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+
+  <footer>Runs entirely in your browser against <span class="mono">rpc.cookiescan.io</span>. No backend, no keys leave your wallet. Source: <a href="https://github.com/Sirovensky/cookie-cleaner">github.com/Sirovensky/cookie-cleaner</a>. Explorer: <a href="https://cookiescan.io">cookiescan.io</a>.</footer>
+</main>
+<div id="toasts"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.98.4/lib/index.iife.min.js"></script>
+<script>
+const W = solanaWeb3;
+const RPC = 'https://rpc.cookiescan.io';
+const EXPLORER = 'https://cookiescan.io';
+const TOKEN = new W.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const TOKEN22 = new W.PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+const conn = new W.Connection(RPC, 'confirmed');
+const $ = id => document.getElementById(id);
+
+// ---------- UI helpers ----------
+function toast(msg, kind = '', ms = 9000) {
+  const el = document.createElement('div'); el.className = 'toast ' + kind; el.innerHTML = msg; $('toasts').appendChild(el);
+  setTimeout(() => el.remove(), ms); return el;
+}
+const short = k => k.slice(0, 4) + '…' + k.slice(-4);
+const txLink = sig => `<a target="_blank" rel="noopener" href="${EXPLORER}/tx/${sig}">${short(sig)}</a>`;
+
+// ---------- Wallet (Wallet Standard, Nightly first) ----------
+let wallet = null, account = null, pubkey = null;
+function findWallets() {
+  const found = [];
+  if (window.nightly && window.nightly.solana && window.nightly.solana.features) found.push(window.nightly.solana);
+  try {
+    const cb = ({ register }) => register({ register: w => found.push(w) });
+    window.addEventListener('wallet-standard:register-wallet', () => {});
+    window.dispatchEvent(new CustomEvent('wallet-standard:app-ready', { detail: { register: w => { if (!found.includes(w)) found.push(w); return () => {}; }, on: () => () => {} } }));
+  } catch (e) {}
+  return found.filter(w => w.features && (w.features['solana:signAndSendTransaction'] || w.features['solana:signTransaction']));
+}
+async function connect() {
+  const ws = findWallets();
+  if (!ws.length) {
+    if (window.solana && window.solana.connect) { // legacy injected provider fallback
+      const r = await window.solana.connect(); pubkey = new W.PublicKey(r.publicKey.toString()); wallet = { legacy: window.solana }; return onConnected();
+    }
+    toast('No Solana wallet found. Install <a target="_blank" rel="noopener" href="https://nightly.app">Nightly</a>, add Cookie Chain as a custom SVM network (RPC https://rpc.cookiescan.io), then reload.', 'bad', 15000); return;
+  }
+  wallet = ws.find(w => /nightly/i.test(w.name)) || ws[0];
+  const res = await wallet.features['standard:connect'].connect();
+  account = res.accounts[0]; pubkey = new W.PublicKey(account.address);
+  onConnected();
+}
+async function disconnect() {
+  try { if (wallet && wallet.features && wallet.features['standard:disconnect']) await wallet.features['standard:disconnect'].disconnect(); } catch (e) {}
+  wallet = account = pubkey = null; $('addr').textContent = 'not connected'; $('btnDisconnect').hidden = true; $('btnConnect').hidden = false;
+  for (const b of ['btnScan', 'btnClose', 'btnSend']) $(b).disabled = true; $('bal').textContent = '—'; $('rent').textContent = '—';
+  $('tbl').tBodies[0].innerHTML = ''; $('hist').tBodies[0].innerHTML = '';
+}
+function onConnected() {
+  $('addr').innerHTML = `<a target="_blank" rel="noopener" href="${EXPLORER}/address/${pubkey.toBase58()}">${short(pubkey.toBase58())}</a>`;
+  $('btnConnect').hidden = true; $('btnDisconnect').hidden = false; $('btnScan').disabled = false; $('btnSend').disabled = false;
+  toast('Connected ' + (wallet.name || 'wallet') + ' as ' + short(pubkey.toBase58()), 'ok'); refreshBalance(); scan(); history();
+}
+
+// Sign + send through whichever feature the wallet exposes, then poll for confirmation.
+async function signAndSend(tx, label) {
+  const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = blockhash; tx.feePayer = pubkey;
+  const sim = await conn.simulateTransaction(tx);
+  if (sim.value.err) throw new Error('Simulation failed: ' + JSON.stringify(sim.value.err) + ' ' + (sim.value.logs || []).slice(-3).join(' | '));
+  const pending = toast(label + ': waiting for wallet signature…', '', 60000);
+  let sig;
+  try {
+    if (wallet.legacy) {
+      const signed = await wallet.legacy.signTransaction(tx); sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+    } else if (wallet.features['solana:signAndSendTransaction']) {
+      const chain = account.chains && account.chains[0];
+      const [r] = await wallet.features['solana:signAndSendTransaction'].signAndSendTransaction({ transaction: tx.serialize({ requireAllSignatures: false }), account, chain });
+      sig = W.bs58 ? W.bs58.encode(r.signature) : base58(r.signature);
+    } else {
+      const chain = account.chains && account.chains[0];
+      const [r] = await wallet.features['solana:signTransaction'].signTransaction({ transaction: tx.serialize({ requireAllSignatures: false }), account, chain });
+      sig = await conn.sendRawTransaction(r.signedTransaction, { skipPreflight: true });
+    }
+  } finally { pending.remove(); }
+  const t = toast(label + ': sent ' + txLink(sig) + ' — confirming…', '', 90000);
+  const res = await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+  t.remove();
+  if (res.value.err) { toast(label + ' failed on-chain: ' + JSON.stringify(res.value.err) + ' ' + txLink(sig), 'bad', 15000); throw new Error('tx failed'); }
+  toast(label + ' confirmed ' + txLink(sig), 'ok', 15000);
+  return sig;
+}
+function base58(bytes) { const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'; let x = 0n; for (const b of bytes) x = x * 256n + BigInt(b); let s = ''; while (x > 0n) { s = A[Number(x % 58n)] + s; x /= 58n; } for (const b of bytes) { if (b === 0) s = '1' + s; else break; } return s; }
+
+// ---------- Chain stats ----------
+async function stats() {
+  try {
+    const [ep, perf] = await Promise.all([conn.getEpochInfo(), conn.getRecentPerformanceSamples(1)]);
+    $('slot').textContent = ep.absoluteSlot.toLocaleString(); $('epoch').textContent = ep.epoch + ' (' + Math.round(ep.slotIndex / ep.slotsInEpoch * 100) + '%)';
+    if (perf[0]) $('tps').textContent = (perf[0].numTransactions / perf[0].samplePeriodSecs).toFixed(1);
+  } catch (e) { $('slot').textContent = 'rpc error'; }
+}
+async function refreshBalance() { try { $('bal').textContent = (await conn.getBalance(pubkey) / 1e9).toFixed(4); } catch (e) { toast('Balance read failed: ' + e.message, 'bad'); } }
+
+// ---------- Token account scan + mint risk flags ----------
+let accounts = [];
+const mintCache = new Map();
+async function mintInfo(mint) {
+  if (mintCache.has(mint)) return mintCache.get(mint);
+  let out = { flags: [], program: '?' };
+  try {
+    const acc = await conn.getParsedAccountInfo(new W.PublicKey(mint));
+    const v = acc.value; if (!v || !v.data.parsed) return out;
+    const info = v.data.parsed.info; out.program = v.owner.equals(TOKEN22) ? 'Token-2022' : 'SPL Token';
+    const ext = {}; for (const e of info.extensions || []) ext[e.extension] = e.state || {};
+    const fee = ext.transferFeeConfig && ext.transferFeeConfig.newerTransferFee && ext.transferFeeConfig.newerTransferFee.transferFeeBasisPoints;
+    if (fee) out.flags.push({ t: 'transfer tax ' + (fee / 100) + '%', c: 'bad' });
+    if (ext.permanentDelegate) out.flags.push({ t: 'permanent delegate', c: 'bad' });
+    if (ext.pausableConfig) out.flags.push({ t: 'pausable', c: 'warn' });
+    if (ext.transferHook && ext.transferHook.programId) out.flags.push({ t: 'transfer hook', c: 'warn' });
+    if (info.mintAuthority) out.flags.push({ t: 'mintable', c: 'warn' });
+    if (info.freezeAuthority) out.flags.push({ t: 'freezable', c: 'warn' });
+    if (!out.flags.length) out.flags.push({ t: 'clean', c: 'ok' });
+  } catch (e) { out.flags.push({ t: 'lookup failed', c: 'warn' }); }
+  mintCache.set(mint, out); return out;
+}
+async function scan() {
+  $('btnScan').disabled = true; $('scanInfo').textContent = 'scanning…'; accounts = [];
+  try {
+    const [a, b] = await Promise.all([conn.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN }), conn.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN22 })]);
+    for (const [prog, r] of [[TOKEN, a], [TOKEN22, b]]) for (const it of r.value) {
+      const info = it.account.data.parsed.info;
+      accounts.push({ pubkey: it.pubkey, program: prog, mint: info.mint, amount: info.tokenAmount.uiAmountString, raw: info.tokenAmount.amount, lamports: it.account.lamports, closeAuth: info.closeAuthority, frozen: info.state === 'frozen' });
+    }
+    const tb = $('tbl').tBodies[0]; tb.innerHTML = '';
+    let rent = 0, empties = 0;
+    for (const ac of accounts) {
+      const mi = await mintInfo(ac.mint);
+      const empty = ac.raw === '0' && !ac.frozen; if (empty) { rent += ac.lamports; empties++; }
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="mono"><a target="_blank" rel="noopener" href="${EXPLORER}/token/${ac.mint}">${short(ac.mint)}</a></td><td>${ac.amount}${empty ? ' <span class="tag">empty</span>' : ''}${ac.frozen ? ' <span class="tag bad">frozen</span>' : ''}</td><td>${mi.program}</td><td>${mi.flags.map(f => `<span class="tag ${f.c}">${f.t}</span>`).join('')}</td><td class="mono"><a target="_blank" rel="noopener" href="${EXPLORER}/address/${ac.pubkey.toBase58()}">${short(ac.pubkey.toBase58())}</a></td>`;
+      tb.appendChild(tr);
+    }
+    $('rent').textContent = (rent / 1e9).toFixed(4) + ' COOK'; $('btnClose').disabled = empties === 0;
+    $('scanInfo').textContent = `${accounts.length} token accounts, ${empties} empty`;
+    if (!accounts.length) $('tbl').tBodies[0].innerHTML = '<tr><td colspan="5" class="muted">No token accounts on this wallet.</td></tr>';
+  } catch (e) { toast('Scan failed: ' + e.message, 'bad'); $('scanInfo').textContent = ''; }
+  $('btnScan').disabled = false;
+}
+// CloseAccount = instruction index 9 for both token programs.
+function closeIx(ac) {
+  return new W.TransactionInstruction({ programId: ac.program, data: Uint8Array.from([9]),
+    keys: [{ pubkey: ac.pubkey, isSigner: false, isWritable: true }, { pubkey: pubkey, isSigner: false, isWritable: true }, { pubkey: pubkey, isSigner: true, isWritable: false }] });
+}
+async function closeEmpties() {
+  const targets = accounts.filter(a => a.raw === '0' && !a.frozen && (!a.closeAuth || a.closeAuth === pubkey.toBase58()));
+  if (!targets.length) return toast('Nothing to close.', '');
+  $('btnClose').disabled = true;
+  try {
+    for (let i = 0; i < targets.length; i += 12) {   // keep each tx small enough for any wallet
+      const batch = targets.slice(i, i + 12); const tx = new W.Transaction();
+      for (const ac of batch) tx.add(closeIx(ac));
+      await signAndSend(tx, `Close ${batch.length} account${batch.length > 1 ? 's' : ''}`);
+    }
+    toast('Reclaimed rent from ' + targets.length + ' account(s).', 'ok');
+  } catch (e) { toast('Close failed: ' + e.message, 'bad', 15000); }
+  await refreshBalance(); await scan(); await history();
+}
+async function send() {
+  let to; try { to = new W.PublicKey($('to').value.trim()); } catch (e) { return toast('Invalid recipient address.', 'bad'); }
+  const amt = parseFloat($('amt').value); if (!(amt > 0)) return toast('Enter an amount greater than 0.', 'bad');
+  const lamports = Math.round(amt * 1e9); const bal = await conn.getBalance(pubkey);
+  if (lamports + 5000 > bal) return toast('Insufficient COOK: balance ' + (bal / 1e9).toFixed(4), 'bad');
+  $('btnSend').disabled = true;
+  try { const tx = new W.Transaction().add(W.SystemProgram.transfer({ fromPubkey: pubkey, toPubkey: to, lamports })); await signAndSend(tx, `Send ${amt} COOK`); $('amt').value = ''; }
+  catch (e) { toast('Send failed: ' + e.message, 'bad', 15000); }
+  $('btnSend').disabled = false; await refreshBalance(); await history();
+}
+async function history() {
+  try {
+    const sigs = await conn.getSignaturesForAddress(pubkey, { limit: 10 });
+    const tb = $('hist').tBodies[0]; tb.innerHTML = sigs.length ? '' : '<tr><td colspan="4" class="muted">No transactions yet.</td></tr>';
+    for (const s of sigs) { const tr = document.createElement('tr'); tr.innerHTML = `<td class="mono">${txLink(s.signature)}</td><td>${s.slot}</td><td>${s.blockTime ? new Date(s.blockTime * 1000).toLocaleString() : ''}</td><td>${s.err ? '<span class="tag bad">failed</span>' : '<span class="tag ok">ok</span>'}</td>`; tb.appendChild(tr); }
+  } catch (e) { toast('History read failed: ' + e.message, 'bad'); }
+}
+
+$('btnConnect').onclick = () => connect().catch(e => toast('Connect failed: ' + e.message, 'bad'));
+$('btnDisconnect').onclick = disconnect; $('btnScan').onclick = scan; $('btnClose').onclick = closeEmpties; $('btnSend').onclick = send;
+stats(); setInterval(stats, 15000);
+</script>
+</body>
+</html>
